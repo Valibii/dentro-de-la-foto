@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dentro de la Foto</title>
+<meta name="description" content="Convierte una foto en una escena 3D y camina dentro de ella con tu Quest.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Young+Serif&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: lienzo 3D a pantalla completa; una sola tarjeta de control anclada abajo a la izquierda. */
+  :root {
+    --dusk: #120f1c;        /* fondo: crepúsculo violeta */
+    --panel: rgba(24, 20, 36, 0.86);
+    --line: rgba(255, 214, 186, 0.14);
+    --ink: #f6eee8;         /* texto principal, blanco cálido */
+    --muted: #b7a9b4;
+    --ember: #ff9a5c;       /* acento: luz de atardecer */
+    --ember-ink: #2a1408;
+    --ok: #8fd6a8;
+    --warn: #ffcf70;
+    --font-display: "Young Serif", Georgia, "Times New Roman", serif;
+    --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(120% 90% at 70% 10%, #2a1d33 0%, var(--dusk) 60%);
+    color: var(--ink);
+    font: 400 15px/1.5 var(--font-body);
+    overflow: hidden;
+  }
+  canvas#gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  .card {
+    position: fixed;
+    left: max(16px, env(safe-area-inset-left, 0px));
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    width: min(420px, calc(100% - 32px));
+    max-height: calc(100% - 32px);
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 20px;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    display: grid;
+    gap: 14px;
+  }
+  .eyebrow {
+    font: 500 11px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ember);
+  }
+  h1 {
+    font: 400 30px/1.1 var(--font-display);
+    margin: 0;
+    text-wrap: balance;
+  }
+  p { margin: 0; color: var(--muted); max-width: 60ch; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; }
+  button, .filebtn {
+    font: 600 15px/1 var(--font-body);
+    border-radius: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--ink);
+    cursor: pointer;
+    flex: 1 1 auto;
+    text-align: center;
+    min-height: 48px;
+  }
+  button:hover, .filebtn:hover { background: rgba(255, 255, 255, 0.11); }
+  button:focus-visible, .filebtn:focus-within { outline: 2px solid var(--ember); outline-offset: 2px; }
+  button.primary {
+    background: var(--ember);
+    border-color: transparent;
+    color: var(--ember-ink);
+    font-size: 17px;
+    padding: 18px 16px;
+  }
+  button.primary:hover { background: #ffb07f; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .filebtn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .filebtn { position: relative; display: inline-flex; align-items: center; justify-content: center; }
+
+  .status {
+    font: 400 12.5px/1.4 var(--font-mono);
+    color: var(--muted);
+    display: flex; align-items: center; gap: 8px;
+    font-variant-numeric: tabular-nums;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--warn); flex: none; }
+  .status[data-state="ok"] .dot { background: var(--ok); }
+  .status[data-state="err"] .dot { background: #ff7a7a; }
+  .bar { height: 3px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; width: 0%; background: var(--ember); transition: width .2s; }
+
+  details { border-top: 1px solid var(--line); padding-top: 12px; }
+  summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+  .controls { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin-top: 10px; font-size: 14px; }
+  .controls dt { font: 500 12px/1.6 var(--font-mono); color: var(--ember); white-space: nowrap; }
+  .controls dd { margin: 0; color: var(--muted); }
+  .note { font-size: 13px; }
+  .note a { color: var(--ember); }
+  .collapse { position: fixed; right: 16px; top: calc(16px + env(safe-area-inset-top, 0px)); flex: none; min-height: 40px; padding: 10px 14px; background: var(--panel); }
+  @media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+    "@sparkjsdev/spark": "https://cdn.jsdelivr.net/npm/@sparkjsdev/spark@2.2.0/dist/spark.module.js"
+  }
+}
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<button class="collapse" id="toggleCard" type="button" aria-expanded="true">Ocultar panel</button>
+
+<section class="card" id="card" aria-label="Controles">
+  <div class="eyebrow">Gaussian splat · Quest 3</div>
+  <h1>Dentro de la foto</h1>
+  <p>Una foto convertida en escena 3D. Ponte el Quest, entra y camina hacia adentro.</p>
+
+  <div class="row">
+    <button class="primary" id="enterAR" type="button" disabled>Entrar con passthrough</button>
+  </div>
+  <div class="row">
+    <button id="enterVR" type="button" disabled>Entrar en VR</button>
+    <label class="filebtn" for="file">Cargar mi .ply
+      <input id="file" type="file">
+    </label>
+  </div>
+
+  <div class="status" id="status" data-state="wait"><span class="dot"></span><span id="statusText">Cargando escena demo…</span></div>
+  <div class="bar" aria-hidden="true"><i id="bar"></i></div>
+
+  <details>
+    <summary>Controles dentro del Quest</summary>
+    <dl class="controls">
+      <dt>Pellizco / gatillo</dt><dd>Coloca la escena frente a ti (y la vuelve a aparecer)</dd>
+      <dt>Stick der. ↑↓</dt><dd>Acercar o alejar la escena</dd>
+      <dt>Stick der. ←→</dt><dd>Girar la escena</dd>
+      <dt>Stick izq. ↑↓</dt><dd>Subir o bajar (alinear el piso)</dd>
+      <dt>Stick izq. ←→</dt><dd>Escala</dd>
+      <dt>Botón A / X</dt><dd>Repetir la animación de aparición</dd>
+    </dl>
+  </details>
+  <p class="note">¿Todavía no tienes tu .ply? <a href="https://colab.research.google.com/github/Valibii/dentro-de-la-foto/blob/main/foto_a_3d.ipynb" target="_blank" rel="noopener">Convierte una foto aquí</a> (Google Colab, gratis, desde el cel).</p>
+  <p class="note" id="xrNote">En la compu o el cel puedes arrastrar para mirar la escena. Para entrar, abre esta página en el navegador del Quest.</p>
+</section>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { SparkRenderer, SplatMesh, dyno } from "@sparkjsdev/spark";
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("gl");
+const statusEl = $("status"), statusText = $("statusText"), bar = $("bar");
+const setStatus = (text, state = "wait") => { statusText.textContent = text; statusEl.dataset.state = state; };
+
+// ---------- three / spark ----------
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight, false);
+renderer.setClearColor(0x000000, 0);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.02, 400);
+camera.position.set(0, 0, 0.001);
+scene.add(camera);
+
+const spark = new SparkRenderer({ renderer });
+scene.add(spark);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(0, 0, -4);
+controls.enableDamping = true;
+controls.rotateSpeed = -0.35;   // arrastrar = mirar alrededor desde el punto de la foto
+controls.enableZoom = true;
+controls.update();
+
+// root = dónde vive la escena en tu cuarto. mesh = splat en coordenadas OpenCV (las de ML Sharp).
+const root = new THREE.Group();
+scene.add(root);
+
+// ---------- animación de aparición (de cerca hacia lejos) ----------
+const reveal = dyno.dynoFloat(1);
+let revealStart = -1;
+const REVEAL_SECONDS = 2.8;
+
+function revealModifier() {
+  return dyno.dynoBlock({ gsplat: dyno.Gsplat }, { gsplat: dyno.Gsplat }, ({ gsplat }) => {
+    const d = dyno.dyno({
+      inTypes: { gsplat: dyno.Gsplat, t: "float" },
+      outTypes: { gsplat: dyno.Gsplat },
+      statements: ({ inputs, outputs }) => dyno.unindentLines(`
+        ${outputs.gsplat} = ${inputs.gsplat};
+        float r = length(${inputs.gsplat}.center);
+        float front = ${inputs.t} * ${inputs.t} * 95.0;
+        float k = clamp((front - r) / max(0.5, r * 0.3), 0.0, 1.0);
+        ${outputs.gsplat}.rgba.a *= k;
+        ${outputs.gsplat}.scales *= mix(0.15, 1.0, k);
+      `),
+    });
+    gsplat = d.apply({ gsplat, t: reveal }).gsplat;
+    return { gsplat };
+  });
+}
+function playReveal() { revealStart = performance.now(); reveal.value = 0; }
+
+// ---------- carga ----------
+let mesh = null;
+let splatCount = 0;
+let groundY = 1.5; // altura estimada de la cámara de la foto sobre el piso (m)
+
+function estimateGround(m) {
+  const ys = [];
+  let i = 0;
+  m.forEachSplat((idx, c, s, q, o) => {
+    i++;
+    if ((idx & 7) !== 0 || o < 0.3) return;
+    if (c.z > 0.6 && c.z < 8 && Math.abs(c.x) < c.z * 0.5 && c.y > 0.2) ys.push(c.y);
+  });
+  splatCount = i;
+  if (ys.length < 200) return 1.5;
+  ys.sort((a, b) => a - b);
+  const v = ys[Math.floor(ys.length * 0.6)];
+  return (v > 0.4 && v < 3) ? v : 1.5;
+}
+
+async function loadSplat(opts, label) {
+  setStatus(`Cargando ${label}…`);
+  bar.style.width = "0%";
+  if (mesh) { root.remove(mesh); mesh.dispose?.(); mesh = null; }
+  try {
+    const m = new SplatMesh({
+      ...opts,
+      onProgress: (e) => { if (e.lengthComputable) bar.style.width = `${Math.round(100 * e.loaded / e.total)}%`; },
+    });
+    m.quaternion.set(1, 0, 0, 0); // OpenCV (y abajo, z adelante) → three.js (y arriba, -z adelante)
+    root.add(m);
+    await m.initialized;
+    m.objectModifier = revealModifier();
+    m.updateGenerator();
+    mesh = m;
+    groundY = estimateGround(m);
+    bar.style.width = "100%";
+    const n = splatCount;
+    setStatus(`${label} · ${n.toLocaleString("es-MX")} splats · piso a ${groundY.toFixed(2)} m`, "ok");
+    if (inXR) placeInFront(); else playReveal();
+  } catch (err) {
+    console.error(err);
+    setStatus(`No se pudo abrir ${label}. Usa un .ply de ML Sharp o .spz.`, "err");
+  }
+}
+
+$("file").addEventListener("change", async (e) => {
+  const f = e.target.files?.[0];
+  if (!f) return;
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  loadSplat({ fileBytes: bytes, fileName: f.name }, f.name);
+});
+
+// ---------- XR ----------
+let inXR = false;
+let xrMode = null;
+let dist = 1.0, yawOffset = 0, heightOffset = 0, userScale = 1;
+const anchor = { pos: new THREE.Vector3(), yaw: 0 };
+
+function applyRoot() {
+  if (!inXR) { root.position.set(0, 0, 0); root.rotation.set(0, 0, 0); root.scale.setScalar(1); return; }
+  const yaw = anchor.yaw + yawOffset;
+  const fwd = new THREE.Vector3(-Math.sin(yaw), 0, -Math.cos(yaw));
+  root.position.copy(anchor.pos).addScaledVector(fwd, dist);
+  root.position.y = groundY * userScale + heightOffset;
+  root.rotation.set(0, yaw, 0);
+  root.scale.setScalar(userScale);
+}
+
+function placeInFront() {
+  const xrCam = renderer.xr.getCamera();
+  const p = new THREE.Vector3(); xrCam.getWorldPosition(p);
+  const dir = new THREE.Vector3(); xrCam.getWorldDirection(dir);
+  anchor.pos.set(p.x, 0, p.z);
+  anchor.yaw = Math.atan2(-dir.x, -dir.z);
+  yawOffset = 0;
+  applyRoot();
+  playReveal();
+}
+
+for (const i of [0, 1]) {
+  const c = renderer.xr.getController(i);
+  c.addEventListener("select", () => { if (inXR) placeInFront(); });
+  scene.add(c);
+}
+
+async function startXR(mode) {
+  try {
+    const session = await navigator.xr.requestSession(mode, {
+      requiredFeatures: ["local-floor"],
+      optionalFeatures: ["hand-tracking"],
+    });
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType("local-floor");
+    renderer.xr.setFramebufferScaleFactor(0.8);
+    renderer.xr.setFoveation(1);
+    await renderer.xr.setSession(session);
+    inXR = true; xrMode = mode;
+    scene.background = mode === "immersive-vr" ? new THREE.Color(0x0b0910) : null;
+    controls.enabled = false;
+    session.addEventListener("end", () => {
+      inXR = false; xrMode = null;
+      scene.background = null;
+      renderer.xr.enabled = false;
+      controls.enabled = true;
+      applyRoot();
+      camera.position.set(0, 0, 0.001);
+      controls.target.set(0, 0, -4);
+      controls.update();
+    });
+    // espera un frame para tener la pose de la cabeza y coloca la escena
+    session.requestAnimationFrame(() => setTimeout(placeInFront, 50));
+  } catch (err) {
+    console.error(err);
+    setStatus("El navegador no dejó entrar al modo inmersivo.", "err");
+  }
+}
+$("enterAR").addEventListener("click", () => startXR("immersive-ar"));
+$("enterVR").addEventListener("click", () => startXR("immersive-vr"));
+
+(async () => {
+  if (!navigator.xr) return;
+  const [ar, vr] = await Promise.all([
+    navigator.xr.isSessionSupported("immersive-ar").catch(() => false),
+    navigator.xr.isSessionSupported("immersive-vr").catch(() => false),
+  ]);
+  $("enterAR").disabled = !ar;
+  $("enterVR").disabled = !vr;
+  if (ar || vr) $("xrNote").textContent = "Listo para entrar. Al entrar, la escena aparece frente a ti; camina hacia ella.";
+})();
+
+// ---------- sticks del control ----------
+let lastButtons = {};
+function readGamepads(dt) {
+  const session = renderer.xr.getSession();
+  if (!session) return;
+  const dead = (v) => (Math.abs(v) < 0.15 ? 0 : v);
+  let changed = false;
+  for (const src of session.inputSources) {
+    const gp = src.gamepad;
+    if (!gp || src.hand) continue;
+    const ax = dead(gp.axes[2] ?? 0), ay = dead(gp.axes[3] ?? 0);
+    if (src.handedness === "right") {
+      if (ay) { dist = THREE.MathUtils.clamp(dist + ay * 1.2 * dt, -6, 8); changed = true; }
+      if (ax) { yawOffset -= ax * 1.2 * dt; changed = true; }
+    } else if (src.handedness === "left") {
+      if (ay) { heightOffset = THREE.MathUtils.clamp(heightOffset - ay * 0.6 * dt, -2, 2); changed = true; }
+      if (ax) { userScale = THREE.MathUtils.clamp(userScale * (1 + ax * 0.8 * dt), 0.1, 5); changed = true; }
+    }
+    const a = !!gp.buttons[4]?.pressed;
+    const key = src.handedness;
+    if (a && !lastButtons[key]) playReveal();
+    lastButtons[key] = a;
+  }
+  if (changed) applyRoot();
+}
+
+// ---------- loop ----------
+let last = performance.now();
+renderer.setAnimationLoop((time) => {
+  const now = performance.now();
+  const dt = Math.min(0.1, (now - last) / 1000); last = now;
+  if (revealStart >= 0) {
+    const t = Math.min(1, (now - revealStart) / (REVEAL_SECONDS * 1000));
+    reveal.value = 1 - Math.pow(1 - t, 2);
+    if (t >= 1) revealStart = -1;
+    mesh?.updateVersion();
+  }
+  if (inXR) readGamepads(dt); else controls.update();
+  renderer.render(scene, camera);
+});
+
+addEventListener("resize", () => {
+  if (inXR) return;
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight, false);
+});
+
+// ---------- panel ----------
+$("toggleCard").addEventListener("click", (e) => {
+  const card = $("card");
+  card.hidden = !card.hidden;
+  e.currentTarget.textContent = card.hidden ? "Mostrar panel" : "Ocultar panel";
+  e.currentTarget.setAttribute("aria-expanded", String(!card.hidden));
+});
+
+// ---------- escena inicial ----------
+// ?src=archivo.ply para abrir directo otra escena publicada junto a esta página
+const params = new URLSearchParams(location.search);
+const src = params.get("src") || "demo.ply";
+loadSplat({ url: src }, src === "demo.ply" ? "Escena demo" : src.split("/").pop());
+</script>
+</body>
+</html>
