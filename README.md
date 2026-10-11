@@ -7,7 +7,8 @@ Convierte una foto en una escena 3D (Gaussian splat, con [Apple ML Sharp](https:
 - **Convertir en una PC con NVIDIA:** carpeta `pc/` — arrastra fotos encima de `foto-a-3d.bat`.
 
 ## Flujo sin PC
-1. Cel: abre el Colab → *Entorno de ejecución → Cambiar tipo → T4 GPU* → *Ejecutar todo* → elige tu foto. Se guarda en Drive, carpeta **Dentro de la foto**.
+1. Cel: sube tus fotos a Google Drive, carpeta **Dentro de la foto/fotos** (el Colab la crea la primera vez).
+   Abre el Colab → *Entorno de ejecución → Cambiar tipo → T4 GPU* → *Ejecutar todo*. Los `-quest.ply` quedan en **Dentro de la foto**.
 2. Quest: drive.google.com → descarga `tu-foto-quest.ply`.
 3. Quest: abre el visor → **Cargar mi .ply** → **Entrar con passthrough**.
 
