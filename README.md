@@ -4,7 +4,7 @@ Convierte una foto en una escena 3D (Gaussian splat, con [Apple ML Sharp](https:
 
 - **Visor (ábrelo en el navegador del Quest):** https://valibii.github.io/dentro-de-la-foto/
 - **Convertir una foto desde el cel (Colab, GPU gratis):** [![Abrir en Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Valibii/dentro-de-la-foto/blob/main/foto_a_3d.ipynb)
-- **Convertir en una PC con NVIDIA:** carpeta `pc/` — arrastra fotos encima de `foto-a-3d.bat`.
+- **Convertir en tu PC con NVIDIA (local):** carpeta `pc/` → doble clic en `foto-a-3d.bat`. Toma las fotos nuevas de *Drive/Dentro de la foto/fotos* (si tienes Google Drive para escritorio) y deja los `-quest.ply` en *Dentro de la foto*. También puedes arrastrar fotos encima del `.bat`.
 
 ## Flujo sin PC
 1. Cel: sube tus fotos a Google Drive, carpeta **Dentro de la foto/fotos** (el Colab la crea la primera vez).
